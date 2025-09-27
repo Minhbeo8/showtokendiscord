@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Discord Token Validator
 // @namespace    https://github.com/Minhbeo8/
-// @version      2.0.1
-// @description  Discord Auto Token Extractor + Validator
+// @version      2.1.0
+// @description  Discord Auto Token Extractor + Validator + Login
 // @author       Minhbeo8
 // @match        *://discord.com/*
 // @match        *://*.discord.com/*
@@ -18,7 +18,7 @@
 (function() {
     'use strict';
     
-    console.log(' Discord Token Validator -Starting...');
+    console.log(' Discord Token Validator - Starting...');
     
     let capturedToken = null;
     let capturedUser = null;
@@ -103,6 +103,34 @@
         }
     }
     
+    async function loginWithToken(token) {
+        if (!token) return { success: false, error: 'No token provided' };
+        
+        try {
+            const validation = await validateToken(token);
+            if (!validation.valid) {
+                return { success: false, error: validation.error };
+            }
+            
+            localStorage.removeItem('token');
+            sessionStorage.clear();
+            localStorage.setItem('token', `"${token}"`);
+            
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+            
+            return { 
+                success: true, 
+                user: validation.user,
+                message: 'Login successful! Reloading...'
+            };
+            
+        } catch (err) {
+            return { success: false, error: 'Login failed: ' + err.message };
+        }
+    }
+    
     function detectTokenType(token) {
         try {
             const parts = token.split('.');
@@ -126,7 +154,7 @@
                 position: fixed !important;
                 top: 20px !important;
                 right: 20px !important;
-                width: 280px !important;
+                width: 320px !important;
                 background: #2f3136 !important;
                 border: 2px solid #43b581 !important;
                 border-radius: 8px !important;
@@ -187,6 +215,29 @@
                 color: #43b581 !important;
             }
             
+            .validator-input {
+                width: 100% !important;
+                padding: 10px !important;
+                border: 1px solid #43b581 !important;
+                border-radius: 4px !important;
+                background: #40444b !important;
+                color: #dcddde !important;
+                font-family: monospace !important;
+                font-size: 12px !important;
+                margin-bottom: 8px !important;
+                box-sizing: border-box !important;
+                resize: none !important;
+            }
+            
+            .validator-input::placeholder {
+                color: #72767d !important;
+            }
+            
+            .validator-input:focus {
+                outline: none !important;
+                border-color: #5865f2 !important;
+            }
+            
             .validator-btn {
                 width: 100% !important;
                 padding: 10px 12px !important;
@@ -205,27 +256,57 @@
             .btn-copy:hover { background: #4752c4 !important; }
             .btn-extract { background: #faa61a !important; color: white !important; }
             .btn-extract:hover { background: #e8941a !important; }
+            .btn-login { background: #f04747 !important; color: white !important; }
+            .btn-login:hover { background: #d73636 !important; }
+            
+            .input-section {
+                background: #36393f !important;
+                padding: 12px !important;
+                border-radius: 6px !important;
+                margin-bottom: 12px !important;
+                border-left: 3px solid #5865f2 !important;
+            }
+            
+            .input-label {
+                font-size: 12px !important;
+                font-weight: 600 !important;
+                color: #b9bbbe !important;
+                margin-bottom: 6px !important;
+                display: block !important;
+            }
         `);
         
         const panel = document.createElement('div');
         panel.id = 'discord-validator-panel';
         panel.innerHTML = `
             <div class="validator-header">
-                 Token Validator
+                 Token Validator & Login
                 <button class="validator-close" onclick="this.parentElement.parentElement.remove()">×</button>
             </div>
             <div class="validator-body">
                 <div class="validator-status" id="validator-status">
-                     Searching for token...
+                    🔍 Searching for token...
                 </div>
+                
+                <div class="input-section">
+                    <label class="input-label"> Manual Token Input:</label>
+                    <textarea class="validator-input" id="token-input" 
+                              placeholder="Paste your Discord token here...
+Example: MTA1ODYzNTc3ODU5OTQ2MDg2NQ.GXhKjL.aBcD1234..." 
+                              rows="3"></textarea>
+                </div>
+                
                 <div class="validator-token" id="validator-token">
-                    Token will appear here...
+                    Current token will appear here...
                 </div>
+                
                 <button class="validator-btn btn-verify" id="btn-verify"> Verify Token</button>
+                <button class="validator-btn btn-login" id="btn-login"> Login with Token</button>
                 <button class="validator-btn btn-copy" id="btn-copy"> Copy Token</button>
-                <button class="validator-btn btn-extract" id="btn-extract"> Extract Token</button>
+                <button class="validator-btn btn-extract" id="btn-extract"> Extract Current Token</button>
+                
                 <div style="font-size: 10px; color: #72767d; text-align: center; margin-top: 8px;">
-                    Auto token extraction & validation
+                    Auto extraction, validation & login system
                 </div>
             </div>
         `;
@@ -237,8 +318,22 @@
     }
     
     function bindEvents() {
+        
+        function getCurrentToken() {
+            const inputToken = document.getElementById('token-input').value.trim();
+            return inputToken || capturedToken || GM_getValue('discord_token');
+        }
+     
+        document.getElementById('token-input').addEventListener('input', (e) => {
+            const token = e.target.value.trim();
+            if (token) {
+                updateTokenDisplay(token, null);
+                updateStatus(' Token entered manually');
+            }
+        });
+        
         document.getElementById('btn-verify').addEventListener('click', async () => {
-            const token = capturedToken || GM_getValue('discord_token');
+            const token = getCurrentToken();
             if (!token) {
                 updateStatus(' No token to verify!');
                 return;
@@ -262,10 +357,38 @@
             }
         });
         
-        document.getElementById('btn-copy').addEventListener('click', () => {
-            const token = capturedToken || GM_getValue('discord_token');
+        document.getElementById('btn-login').addEventListener('click', async () => {
+            const token = getCurrentToken();
             if (!token) {
-                alert(' No token to copy!');
+                updateStatus(' No token to login with!');
+                return;
+            }
+            
+            if (!confirm(' Are you sure you want to login with this token?\nThis will logout current account and reload the page.')) {
+                return;
+            }
+            
+            updateStatus(' Attempting login...');
+            
+            try {
+                const result = await loginWithToken(token);
+                
+                if (result.success) {
+                    updateStatus(` ${result.message}`);
+                    showLoginResult(result);
+                } else {
+                    updateStatus(` Login failed: ${result.error}`);
+                    showLoginResult(result);
+                }
+            } catch (err) {
+                updateStatus(` Login error: ${err.message}`);
+            }
+        });
+        
+        document.getElementById('btn-copy').addEventListener('click', () => {
+            const token = getCurrentToken();
+            if (!token) {
+                updateStatus(' No token to copy!');
                 return;
             }
             
@@ -290,7 +413,7 @@
     }
     
     function autoExtract() {
-        updateStatus(' Extracting token...');
+        updateStatus('🔎 Extracting token...');
         
         const token = extractToken();
         if (token) {
@@ -323,6 +446,86 @@
                 tokenEl.style.borderColor = '#f04747';
                 tokenEl.style.color = '#f04747';
             }
+        }
+    }
+    
+    function showLoginResult(result) {
+        const existing = document.getElementById('login-modal');
+        if (existing) existing.remove();
+        
+        const modal = document.createElement('div');
+        modal.id = 'login-modal';
+        modal.style.cssText = `
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: rgba(0,0,0,0.8) !important;
+            z-index: 1000000 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 20px !important;
+            box-sizing: border-box !important;
+        `;
+        
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: #36393f !important;
+            border-radius: 8px !important;
+            padding: 20px !important;
+            max-width: 400px !important;
+            width: 100% !important;
+            color: #dcddde !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            text-align: center !important;
+        `;
+        
+        let html = `
+            <div style="margin-bottom: 16px;">
+                <h3 style="margin: 0; color: ${result.success ? '#43b581' : '#f04747'};">
+                    ${result.success ? ' Login Successful!' : ' Login Failed'}
+                </h3>
+            </div>
+        `;
+        
+        if (result.success && result.user) {
+            html += `
+                <div style="margin-bottom: 16px; padding: 12px; background: #43b58120; border-left: 3px solid #43b581; border-radius: 4px; text-align: left;">
+                    <strong> Logged in as:</strong><br>
+                    ${result.user.username}#${result.user.discriminator}
+                </div>
+                <p style="color: #b9bbbe;">Page will reload automatically...</p>
+            `;
+        } else {
+            html += `
+                <div style="margin-bottom: 16px; padding: 12px; background: #f0474720; border-left: 3px solid #f04747; border-radius: 4px; text-align: left;">
+                    <strong> Error:</strong><br>
+                    ${result.error}
+                </div>
+            `;
+        }
+        
+        html += `
+            <button onclick="this.parentElement.parentElement.remove()" 
+                    style="padding: 10px 20px; background: #5865f2; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">
+                Close
+            </button>
+        `;
+        
+        content.innerHTML = html;
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+        
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
+        
+        if (result.success) {
+            setTimeout(() => {
+                modal.remove();
+            }, 3000);
         }
     }
     
@@ -378,7 +581,7 @@
                     • User ID: ${result.user.id}<br>
                     • Email Verified: ${result.user.verified ? ' Yes' : ' No'}<br>
                     • 2FA Enabled: ${result.user.mfa_enabled ? ' Yes' : ' No'}<br>
-                    • Account Type: ${result.user.premium_type > 0 ? 'Nitro' : 'Regular'}
+                    • Account Type: ${result.user.premium_type > 0 ? ' Nitro' : ' Regular'}
                 </div>
                 
                 <div style="margin-bottom: 12px; padding: 12px; background: #5865f220; border-left: 3px solid #5865f2; border-radius: 4px;">
@@ -396,7 +599,7 @@
                 </div>
                 
                 <div style="margin-bottom: 12px; padding: 8px; background: #40444b; border-radius: 4px; font-size: 12px;">
-                    <strong> Common Issues:</strong><br>
+                    <strong>🔧 Common Issues:</strong><br>
                     • Token expired or revoked<br>
                     • Account suspended/deleted<br>
                     • Invalid token format<br>
